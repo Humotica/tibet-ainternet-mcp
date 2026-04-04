@@ -1,21 +1,36 @@
-# tibet-ainternet-mcp — DNS, Identity & Messaging for AI Agents
+# tibet-ainternet-mcp — DNS, Identity, Registration & Messaging for AI Agents
 # MCP server wrapping the AInternet (.aint) protocol
 #
-# Tools:
-#   ains_resolve      — Resolve a .aint domain
-#   ains_list         — List all registered domains
-#   ains_search       — Search by capability or trust
-#   ains_register     — Register a new .aint domain
-#   ains_identity     — Generate/manage cryptographic identity
-#   ains_challenge    — Challenge-response identity verification
-#   ains_claim_start  — Start multi-channel domain claim
-#   ains_claim_verify — Verify claim with proof URL
-#   ains_claim_complete — Complete claim and register
-#   ipoll_send        — Send message to AI agent
-#   ipoll_receive     — Check inbox
-#   ipoll_status      — Network status
-#   cortex_check      — Check trust-based permissions
-#   cortex_permissions — Full permission profile
+# Tools (20):
+#   AINS — Domain Resolution (4):
+#     ains_resolve        — Resolve a .aint domain
+#     ains_list           — List all registered domains
+#     ains_search         — Search by capability or trust
+#     ains_is_registered  — Check if domain is taken
+#
+#   AINS — Claim/Registration (5):
+#     ains_claim_channels — List verification channels
+#     ains_claim_start    — Start multi-channel domain claim
+#     ains_claim_verify   — Verify claim with proof URL
+#     ains_claim_complete — Complete claim and register
+#     ains_claim_status   — Check claim progress
+#
+#   Identity — Cryptographic (5):
+#     ains_identity_generate — Generate Ed25519 keypair
+#     ains_identity_save     — Save keypair to disk
+#     ains_identity_load     — Load keypair from file
+#     ains_challenge         — Create verification challenge
+#     ains_challenge_respond — Sign challenge to prove identity
+#
+#   I-Poll — Messaging (3):
+#     ipoll_send     — Send message to AI agent
+#     ipoll_receive  — Check inbox
+#     ipoll_status   — Network status
+#
+#   Cortex — Trust Permissions (3):
+#     cortex_check       — Check trust-based permissions
+#     cortex_permissions — Full permission profile
+#     cortex_matrix      — Show full permission matrix
 #
 # Install: pip install tibet-ainternet-mcp
 # Run: tibet-ainternet-mcp
@@ -31,7 +46,7 @@ from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 
-from ainternet import AINS, IPoll, PollType, Cortex
+from ainternet import AINS, IPoll, PollType, Cortex, AINSClaim
 from ainternet.identity import AgentIdentity
 
 # ============================================================================
@@ -76,6 +91,7 @@ mcp = FastMCP(
 _ains: AINS | None = None
 _ipoll: IPoll | None = None
 _cortex: Cortex | None = None
+_claim: AINSClaim | None = None
 _identities: dict[str, AgentIdentity] = {}
 
 
@@ -102,6 +118,13 @@ def _get_cortex() -> Cortex:
     if _cortex is None:
         _cortex = Cortex(_get_ains())
     return _cortex
+
+
+def _get_claim() -> AINSClaim:
+    global _claim
+    if _claim is None:
+        _claim = AINSClaim(base_url=AINTERNET_HUB, timeout=TIMEOUT)
+    return _claim
 
 
 # ============================================================================
@@ -181,6 +204,117 @@ def ains_is_registered(domain: str) -> dict:
         "domain": domain,
         "registered": registered,
     }
+
+
+# ============================================================================
+# CLAIM TOOLS — Domain Registration
+# ============================================================================
+
+@mcp.tool()
+def ains_claim_channels() -> dict:
+    """List available verification channels for .aint domain claims.
+
+    Shows all social platforms you can use to verify your identity:
+    GitHub, Twitter/X, LinkedIn, Mastodon, Moltbook.
+
+    Each channel has a trust boost — more channels = higher trust.
+    3+ channels = Power User status.
+
+    Returns:
+        Available channels with trust boosts and multi-channel bonuses
+    """
+    return _get_claim().channels()
+
+
+@mcp.tool()
+def ains_claim_start(
+    domain: str,
+    agent_name: str = "",
+    description: str = "",
+    capabilities: str = "",
+) -> dict:
+    """Start claiming a .aint domain.
+
+    Returns a verification code valid for 24 hours.
+    Post this code on social platforms (GitHub, Twitter, etc.),
+    then call ains_claim_verify for each platform.
+
+    Registration flows through the AInternet hub at brein.jaspervandemeent.nl.
+    Protected and already-claimed domains cannot be claimed.
+
+    Args:
+        domain: Domain to claim (e.g., "my_agent" or "my_agent.aint")
+        agent_name: Display name for the agent
+        description: What this agent does
+        capabilities: Comma-separated capabilities (e.g., "code,vision,research")
+
+    Returns:
+        Verification code, available channels, and instructions
+    """
+    caps = [c.strip() for c in capabilities.split(",") if c.strip()] if capabilities else None
+    return _get_claim().start(
+        domain=domain,
+        agent_name=agent_name or None,
+        description=description or None,
+        capabilities=caps,
+    )
+
+
+@mcp.tool()
+def ains_claim_verify(
+    domain: str,
+    channel: str,
+    proof_url: str,
+) -> dict:
+    """Verify a .aint domain claim with a proof URL.
+
+    After posting the verification code on a social platform,
+    call this with the URL to your post. The hub checks the code.
+
+    Can be called multiple times for different channels.
+    Each channel boosts your trust score.
+
+    Args:
+        domain: Domain being claimed
+        channel: Platform (github, twitter, linkedin, mastodon, moltbook)
+        proof_url: URL where verification code is posted
+
+    Returns:
+        Verification result with updated trust score and power_user status
+    """
+    return _get_claim().verify(domain, channel, proof_url)
+
+
+@mcp.tool()
+def ains_claim_complete(domain: str) -> dict:
+    """Complete a .aint domain claim and register it.
+
+    Requires at least one verified channel. The domain becomes
+    resolvable on the AInternet immediately after completion.
+
+    Args:
+        domain: Domain to finalize
+
+    Returns:
+        Registration confirmation with trust score and resolve URL
+    """
+    return _get_claim().complete(domain)
+
+
+@mcp.tool()
+def ains_claim_status(domain: str) -> dict:
+    """Check the status of a .aint domain claim.
+
+    Works for pending claims, verified claims, and already-registered domains.
+
+    Args:
+        domain: Domain to check
+
+    Returns:
+        Claim status with verified channels, trust score, and expiration
+    """
+    status = _get_claim().status(domain)
+    return status.to_dict()
 
 
 # ============================================================================
