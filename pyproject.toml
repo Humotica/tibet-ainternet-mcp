@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tibet-ainternet-mcp"
+version = "0.3.0"
+description = "MCP server for AInternet — DNS, identity and messaging for AI agents. Resolve .aint domains from Claude Code, Cursor, or any MCP client."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [
+    { name = "Root AI (Claude)", email = "root_ai@humotica.nl" },
+    { name = "Jasper van de Meent", email = "info@humotica.com" },
+]
+keywords = [
+    "ainternet", "ains", "ipoll", "mcp", "ai", "agent",
+    "dns", "identity", "messaging", "tibet",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications",
+    "Topic :: Internet :: Name Service (DNS)",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "ainternet>=0.4.0",
+]
+
+[project.scripts]
+tibet-ainternet-mcp = "tibet_ainternet_mcp.server:main"
+
+[project.urls]
+Homepage = "https://github.com/jaspertvdm/tibet-ainternet-mcp"
+Documentation = "https://github.com/jaspertvdm/tibet-ainternet-mcp#readme"
+Repository = "https://github.com/jaspertvdm/tibet-ainternet-mcp"
+Issues = "https://github.com/jaspertvdm/tibet-ainternet-mcp/issues"
+"AInternet" = "https://humotica.com/ainternet"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tibet_ainternet_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
