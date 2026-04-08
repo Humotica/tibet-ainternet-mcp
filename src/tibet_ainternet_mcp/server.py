@@ -1,7 +1,8 @@
 # tibet-ainternet-mcp — DNS, Identity, Registration & Messaging for AI Agents
 # MCP server wrapping the AInternet (.aint) protocol
+# Hashes from Holland, not hashish.
 #
-# Tools (20):
+# Tools (21):
 #   AINS — Domain Resolution (4):
 #     ains_resolve        — Resolve a .aint domain
 #     ains_list           — List all registered domains
@@ -42,6 +43,9 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import hashlib
+from pathlib import Path
 from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
@@ -56,36 +60,12 @@ from ainternet.identity import AgentIdentity
 AINTERNET_HUB = os.getenv("AINTERNET_HUB", "https://brein.jaspervandemeent.nl")
 AGENT_ID = os.getenv("AINTERNET_AGENT", "mcp_user")
 TIMEOUT = int(os.getenv("AINTERNET_TIMEOUT", "30"))
+AINTERNET_DIR = Path.home() / ".ainternet"
+IDENTITY_FILE = AINTERNET_DIR / "identity.json"
+KEY_FILE = AINTERNET_DIR / "agent.key"
 
 # ============================================================================
-# MCP SERVER
-# ============================================================================
-
-mcp = FastMCP(
-    "tibet-ainternet",
-    instructions="""
-    AInternet: DNS, identity and messaging for AI agents.
-
-    The AI network with .aint domains. Like DNS but for AI.
-    Every agent gets a verifiable identity backed by Ed25519 keys.
-
-    Core tools:
-    - ains_resolve: Look up any .aint domain (endpoint, trust, capabilities)
-    - ains_list: See all registered agents on the network
-    - ains_search: Find agents by capability (vision, code, etc.)
-    - ains_identity: Generate cryptographic identity for your agent
-    - ains_challenge: Prove you are who you claim (challenge-response)
-    - ipoll_send: Send messages to other AI agents
-    - ipoll_receive: Check your inbox
-    - cortex_check: Verify trust-based permissions
-
-    Part of the TIBET ecosystem — Traceable Intent-Based Event Tokens.
-    Born December 31, 2025 — the day AI got its own internet.
-    """
-)
-
-# ============================================================================
-# CLIENTS (lazy init)
+# CLIENTS (lazy init) + identity store
 # ============================================================================
 
 _ains: AINS | None = None
@@ -94,6 +74,120 @@ _cortex: Cortex | None = None
 _claim: AINSClaim | None = None
 _identities: dict[str, AgentIdentity] = {}
 
+# ============================================================================
+# AUTO-ONBOARDING
+# ============================================================================
+
+def _auto_onboard() -> dict:
+    """Auto-setup identity and network connection on first run.
+
+    Returns onboarding status with agent info.
+    """
+    AINTERNET_DIR.mkdir(mode=0o700, exist_ok=True)
+    status = {"new_identity": False, "loaded_identity": False, "network_ok": False}
+
+    # Step 1: Load or generate identity
+    if IDENTITY_FILE.exists():
+        try:
+            info = json.loads(IDENTITY_FILE.read_text())
+            agent_name = info.get("agent", AGENT_ID)
+            if KEY_FILE.exists():
+                identity = AgentIdentity.load(str(KEY_FILE), domain=agent_name)
+                _identities[agent_name.replace(".aint", "")] = identity
+                status["loaded_identity"] = True
+                status["agent"] = agent_name
+                status["domain"] = info.get("domain", f"{agent_name}.aint")
+                status["fingerprint"] = info.get("fingerprint", identity.fingerprint)
+            else:
+                status["agent"] = agent_name
+        except Exception:
+            pass
+
+    if not status.get("loaded_identity") and not status.get("agent"):
+        # Generate new identity
+        agent_name = AGENT_ID if AGENT_ID != "mcp_user" else _generate_agent_name()
+        try:
+            identity = AgentIdentity.generate(agent_name)
+            _identities[agent_name.replace(".aint", "")] = identity
+
+            # Save key
+            identity.save(str(KEY_FILE))
+
+            # Save identity info
+            info = {
+                "agent": agent_name,
+                "domain": identity.aint_domain,
+                "fingerprint": identity.fingerprint,
+                "public_key": identity.public_key_b64,
+                "hub": AINTERNET_HUB,
+            }
+            IDENTITY_FILE.write_text(json.dumps(info, indent=2))
+            IDENTITY_FILE.chmod(0o600)
+
+            status["new_identity"] = True
+            status["agent"] = agent_name
+            status["domain"] = identity.aint_domain
+            status["fingerprint"] = identity.fingerprint
+        except Exception as e:
+            status["identity_error"] = str(e)
+
+    # Step 2: Health check via network status
+    try:
+        ipoll = IPoll(base_url=AINTERNET_HUB, agent_id=status.get("agent", AGENT_ID), timeout=5)
+        net_status = ipoll.status()
+        status["network_ok"] = net_status.get("status") == "online"
+        status["agents_online"] = net_status.get("registered_agents", 0)
+    except Exception:
+        status["network_ok"] = False
+
+    return status
+
+
+def _generate_agent_name() -> str:
+    """Generate a unique agent name based on machine identity."""
+    import platform
+    seed = f"{platform.node()}-{os.getuid() if hasattr(os, 'getuid') else 'win'}-{Path.home()}"
+    fingerprint = hashlib.sha256(seed.encode()).hexdigest()[:8]
+    return f"agent_{fingerprint}"
+
+
+# Run onboarding at import time (before server starts)
+_onboard_status = _auto_onboard()
+_onboard_agent = _onboard_status.get("agent", AGENT_ID)
+_onboard_domain = _onboard_status.get("domain", f"{_onboard_agent}.aint")
+
+# Update AGENT_ID if we have a real identity
+if _onboard_agent != "mcp_user":
+    AGENT_ID = _onboard_agent
+
+
+# ============================================================================
+# MCP SERVER
+# ============================================================================
+
+_welcome_lines = [
+    "AInternet: The open network with .aint domains.",
+    "",
+    f"You are: {_onboard_domain}",
+    f"Network: {'connected' if _onboard_status.get('network_ok') else 'offline — check AINTERNET_HUB'}",
+    f"Identity: {'loaded' if _onboard_status.get('loaded_identity') else 'new — generated automatically' if _onboard_status.get('new_identity') else 'not available'}",
+    "",
+    "Quick start:",
+    "  ains_whoami        — see your identity and network status",
+    "  ains_resolve       — look up any .aint agent",
+    "  ipoll_send         — message any agent on the network",
+    "  ipoll_receive      — check your inbox",
+    "",
+    "Try: ains_resolve('echo.aint') or ipoll_send('echo.aint', 'hello')",
+    "",
+    "20 tools available. Part of the TIBET ecosystem.",
+    "Born December 31, 2025 — the day AI got its own internet.",
+]
+
+mcp = FastMCP(
+    "tibet-ainternet",
+    instructions="\n".join(_welcome_lines),
+)
 
 def _get_ains() -> AINS:
     global _ains
@@ -125,6 +219,67 @@ def _get_claim() -> AINSClaim:
     if _claim is None:
         _claim = AINSClaim(base_url=AINTERNET_HUB, timeout=TIMEOUT)
     return _claim
+
+
+# ============================================================================
+# AINS TOOLS — Who Am I
+# ============================================================================
+
+@mcp.tool()
+def ains_whoami() -> dict:
+    """See your identity and status on the AInternet.
+
+    Shows your agent name, .aint domain, network connectivity,
+    fingerprint, and trust tier. This is the first thing to check
+    after connecting.
+
+    Returns:
+        Your identity, domain, network status, and available actions
+    """
+    result = {
+        "agent": AGENT_ID,
+        "domain": _onboard_domain,
+        "network": "connected" if _onboard_status.get("network_ok") else "offline",
+        "hub": AINTERNET_HUB,
+        "identity": {},
+        "tips": [],
+    }
+
+    # Check if we have a loaded identity
+    agent_key = AGENT_ID.replace(".aint", "")
+    if agent_key in _identities:
+        identity = _identities[agent_key]
+        result["identity"] = {
+            "fingerprint": identity.fingerprint,
+            "public_key": identity.public_key_b64,
+            "instance_id": identity.instance_id,
+        }
+    elif _onboard_status.get("fingerprint"):
+        result["identity"] = {"fingerprint": _onboard_status["fingerprint"]}
+
+    # Check if registered on network
+    try:
+        ains = _get_ains()
+        registered = ains.is_registered(AGENT_ID)
+        result["registered"] = registered
+        if registered:
+            record = ains.resolve(AGENT_ID)
+            if record:
+                result["trust_score"] = record.trust_score
+                result["capabilities"] = record.capabilities
+        else:
+            result["tips"].append("Not registered yet. Use ains_claim_start to claim your .aint domain.")
+    except Exception:
+        result["registered"] = None
+        result["tips"].append("Could not check registration — network may be offline.")
+
+    if not result["tips"]:
+        result["tips"].append("You're on the AInternet. Try: ipoll_send('echo.aint', 'hello')")
+
+    result["enterprise"] = "Clean .aint domain? enterprise@humotica.com"
+    result["_"] = "Hashes from Holland, not hashish."
+
+    return result
 
 
 # ============================================================================
