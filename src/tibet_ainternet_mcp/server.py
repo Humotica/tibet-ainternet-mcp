@@ -151,14 +151,22 @@ def _generate_agent_name() -> str:
     return f"agent_{fingerprint}"
 
 
-# Run onboarding at import time (before server starts)
-_onboard_status = _auto_onboard()
-_onboard_agent = _onboard_status.get("agent", AGENT_ID)
-_onboard_domain = _onboard_status.get("domain", f"{_onboard_agent}.aint")
+# Lazy onboarding — no side effects at import time (no-surprises rule)
+_onboard_status: dict | None = None
+_onboard_agent: str | None = None
+_onboard_domain: str | None = None
 
-# Update AGENT_ID if we have a real identity
-if _onboard_agent != "mcp_user":
-    AGENT_ID = _onboard_agent
+
+def _ensure_onboarded() -> dict:
+    """Lazy initialization — runs auto-onboard on first tool call, not at import."""
+    global _onboard_status, _onboard_agent, _onboard_domain, AGENT_ID
+    if _onboard_status is None:
+        _onboard_status = _auto_onboard()
+        _onboard_agent = _onboard_status.get("agent", AGENT_ID)
+        _onboard_domain = _onboard_status.get("domain", f"{_onboard_agent}.aint")
+        if _onboard_agent != "mcp_user":
+            AGENT_ID = _onboard_agent
+    return _onboard_status
 
 
 # ============================================================================
@@ -168,9 +176,7 @@ if _onboard_agent != "mcp_user":
 _welcome_lines = [
     "AInternet: The open network with .aint domains.",
     "",
-    f"You are: {_onboard_domain}",
-    f"Network: {'connected' if _onboard_status.get('network_ok') else 'offline — check AINTERNET_HUB'}",
-    f"Identity: {'loaded' if _onboard_status.get('loaded_identity') else 'new — generated automatically' if _onboard_status.get('new_identity') else 'not available'}",
+    "Use ains_whoami to see your identity and network status.",
     "",
     "Quick start:",
     "  ains_whoami        — see your identity and network status",
@@ -199,6 +205,7 @@ def _get_ains() -> AINS:
 def _get_ipoll() -> IPoll:
     global _ipoll
     if _ipoll is None:
+        _ensure_onboarded()
         _ipoll = IPoll(
             base_url=AINTERNET_HUB,
             agent_id=AGENT_ID,
@@ -236,10 +243,11 @@ def ains_whoami() -> dict:
     Returns:
         Your identity, domain, network status, and available actions
     """
+    status = _ensure_onboarded()
     result = {
         "agent": AGENT_ID,
         "domain": _onboard_domain,
-        "network": "connected" if _onboard_status.get("network_ok") else "offline",
+        "network": "connected" if status.get("network_ok") else "offline",
         "hub": AINTERNET_HUB,
         "identity": {},
         "tips": [],
@@ -254,8 +262,8 @@ def ains_whoami() -> dict:
             "public_key": identity.public_key_b64,
             "instance_id": identity.instance_id,
         }
-    elif _onboard_status.get("fingerprint"):
-        result["identity"] = {"fingerprint": _onboard_status["fingerprint"]}
+    elif status.get("fingerprint"):
+        result["identity"] = {"fingerprint": status["fingerprint"]}
 
     # Check if registered on network
     try:
@@ -268,7 +276,7 @@ def ains_whoami() -> dict:
                 result["trust_score"] = record.trust_score
                 result["capabilities"] = record.capabilities
         else:
-            result["tips"].append("Not registered yet. Use ains_claim_start to claim your .aint domain.")
+            result["tips"].append("Not registered yet. Use ains_claim_quick to claim your .aint domain (instant, no social proof).")
     except Exception:
         result["registered"] = None
         result["tips"].append("Could not check registration — network may be offline.")
@@ -382,13 +390,48 @@ def ains_claim_channels() -> dict:
 
 
 @mcp.tool()
+def ains_claim_quick(
+    domain: str,
+    tier: str = "FREE",
+) -> dict:
+    """Instant claim — generate identity locally, register in one call.
+
+    This is the recommended path for AI agents and dev workflows.
+    Mirrors what the K/IT mobile app does: generates an Ed25519 keypair
+    locally, posts hardware_hash + public_key to the AInternet hub,
+    receives actual_domain + session_token in one round-trip. No social
+    proof, no 24-hour TTL, no GitHub gist required. Identity persists
+    in ~/.ainternet/{domain}.json so subsequent runs reuse the keypair.
+
+    For high-trust registrations (verified agents, public bots) the
+    multi-channel social-proof flow is still available via
+    ains_claim_start / ains_claim_verify / ains_claim_complete.
+
+    Args:
+        domain: Domain to claim (e.g., "my_agent" or "my_agent.aint")
+        tier: One of FREE / CONNECT / COMPANION / PRO. Default FREE.
+
+    Returns:
+        actual_domain, tier, session_token (64-char hex),
+        hardware_hash, expires_at, plus _identity_path / _session_path
+        showing where the local keypair + session were persisted.
+    """
+    return _get_claim().quick(domain=domain, tier=tier)
+
+
+@mcp.tool()
 def ains_claim_start(
     domain: str,
     agent_name: str = "",
     description: str = "",
     capabilities: str = "",
 ) -> dict:
-    """Start claiming a .aint domain.
+    """Start claiming a .aint domain via social-proof verification.
+
+    For most use cases, prefer ains_claim_quick — it's instant and
+    needs no social proof. Use this slow flow only when you want a
+    high-trust registration backed by GitHub / Twitter / LinkedIn /
+    Mastodon presence (each verified channel boosts your trust score).
 
     Returns a verification code valid for 24 hours.
     Post this code on social platforms (GitHub, Twitter, etc.),

@@ -103,3 +103,18 @@ Born December 31, 2025 — the day AI got its own internet.
 ## License
 
 MIT
+
+
+---
+
+## Enterprise
+
+For private hub hosting, SLA support, custom integrations, or compliance guidance:
+
+| | |
+|---|---|
+| **Enterprise** | enterprise@humotica.com |
+| **Support** | support@humotica.com |
+| **Security** | security@humotica.com |
+
+See [ENTERPRISE.md](ENTERPRISE.md) for details.

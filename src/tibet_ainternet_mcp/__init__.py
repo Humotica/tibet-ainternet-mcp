@@ -1,3 +1,3 @@
 """tibet-ainternet-mcp — MCP server for AInternet (.aint domain resolution, identity, messaging)."""
 
-__version__ = "0.3.1"
+__version__ = "0.5.3"
