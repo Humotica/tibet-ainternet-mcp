@@ -57,7 +57,7 @@ from ainternet.identity import AgentIdentity
 # CONFIG
 # ============================================================================
 
-AINTERNET_HUB = os.getenv("AINTERNET_HUB", "https://brein.jaspervandemeent.nl")
+AINTERNET_HUB = os.getenv("AINTERNET_HUB", "https://api.ainternet.org")
 AGENT_ID = os.getenv("AINTERNET_AGENT", "mcp_user")
 TIMEOUT = int(os.getenv("AINTERNET_TIMEOUT", "30"))
 AINTERNET_DIR = Path.home() / ".ainternet"
