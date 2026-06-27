@@ -437,7 +437,7 @@ def ains_claim_start(
     Post this code on social platforms (GitHub, Twitter, etc.),
     then call ains_claim_verify for each platform.
 
-    Registration flows through the AInternet hub at brein.jaspervandemeent.nl.
+    Registration flows through the AInternet hub at api.ainternet.org.
     Protected and already-claimed domains cannot be claimed.
 
     Args:

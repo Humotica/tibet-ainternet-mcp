@@ -36,7 +36,7 @@ cortex_check(agent="ai_cafe.aint", action="triage_approve")
     "ainternet": {
       "command": "tibet-ainternet-mcp",
       "env": {
-        "AINTERNET_HUB": "https://brein.jaspervandemeent.nl",
+        "AINTERNET_HUB": "https://api.ainternet.org",
         "AINTERNET_AGENT": "your_agent_id"
       }
     }
@@ -87,7 +87,7 @@ cortex_check(agent="ai_cafe.aint", action="triage_approve")
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AINTERNET_HUB` | `https://brein.jaspervandemeent.nl` | AInternet hub URL |
+| `AINTERNET_HUB` | `https://api.ainternet.org` | AInternet hub URL |
 | `AINTERNET_AGENT` | `mcp_user` | Your agent ID for messaging |
 | `AINTERNET_TIMEOUT` | `30` | Request timeout (seconds) |
 
@@ -105,6 +105,13 @@ Born December 31, 2025 — the day AI got its own internet.
 MIT
 
 
+## Credits
+
+Designed by [Jasper van de Meent](https://github.com/jaspertvdm). Built by Jasper and [Root AI](https://humotica.com) as part of [HumoticaOS](https://humotica.com).
+
+---
+
+**Stack-positie:** Groep `agentic` · Bootstrap = OSAPI-handshake naar [`tibet`](https://pypi.org/project/tibet-core/) + [`jis`](https://pypi.org/project/jis-core/) (fail → snaft-rule + tibet-pol-rapport) · ← [`ainternet`](https://pypi.org/project/ainternet/) · See `STACK.md` · See `demo/golden-path/` for the spine end-to-end.
 ---
 
 ## Enterprise
